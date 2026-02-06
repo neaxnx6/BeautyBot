@@ -1,0 +1,15 @@
+[Unit]
+Description=BeautyBot Telegram Bot
+After=network.target
+
+[Service]
+Type=simple
+User=botuser
+WorkingDirectory=/home/botuser/BeautyBot
+Environment="PATH=/home/botuser/BeautyBot/venv/bin"
+ExecStart=/home/botuser/BeautyBot/venv/bin/python /home/botuser/BeautyBot/bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
