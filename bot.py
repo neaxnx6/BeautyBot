@@ -3,6 +3,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from config import BOT_TOKEN
 from database.setup import init_db
+from reminders.scheduler import start_reminder_scheduler
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
