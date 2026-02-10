@@ -149,9 +149,10 @@ async def get_available_slots(master_id: int):
         ) as cursor:
             all_slots = await cursor.fetchall()
     
-    # Always filter out past slots + apply minimum booking time
+    # КРИТИЧНО: Всегда фильтровать прошедшее время + добавить мин. ограничение
     now = datetime.now()
-    min_booking_time = now + timedelta(hours=min_hours)
+    # Используем max() чтобы гарантировать что даже при min_hours=0 не показываем прошлое
+    min_booking_time = now + timedelta(hours=max(min_hours, 0))
     
     filtered_slots = []
     for slot_id, datetime_str in all_slots:
@@ -161,14 +162,18 @@ async def get_available_slots(master_id: int):
             day, month = map(int, day_month.split('.'))
             hour, minute = map(int, time.split(':'))
             
-            # Assume current year (can be improved)
+            # Assume current year
             slot_dt = datetime(now.year, month, day, hour, minute)
             
-            # КРИТИЧНО: Слот должен быть в будущем И соответствовать мин. времени
-            if slot_dt >= min_booking_time:
+            # If slot is in the past (wrong year assumption), try next year
+            if slot_dt < now and min_hours == 0:
+                slot_dt = datetime(now.year + 1, month, day, hour, minute)
+            
+            # КРИТИЧНО: Слот должен быть строго в будущем
+            if slot_dt > min_booking_time:
                 filtered_slots.append((slot_id, datetime_str))
         except:
-            # If parsing fails, skip the slot (safe behavior - don't show broken data)
+            # If parsing fails, skip the slot (don't show broken data)
             continue
     
     return filtered_slots
