@@ -104,6 +104,20 @@ async def init_db():
                 FOREIGN KEY(master_id) REFERENCES masters(id)
             )
         ''')
+        
+        # Table: Reminders (Track sent notifications)
+        await db.execute('''
+            CREATE TABLE IF NOT EXISTS reminders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                slot_id INTEGER,
+                client_id INTEGER,
+                reminder_type TEXT,
+                sent BOOLEAN DEFAULT 0,
+                sent_at TEXT,
+                FOREIGN KEY(slot_id) REFERENCES slots(id),
+                FOREIGN KEY(client_id) REFERENCES users(id)
+            )
+        ''')
 
         await db.commit()
     print("Database initialized.")

@@ -23,6 +23,9 @@ async def main():
     bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.MARKDOWN))
     dp = Dispatcher()
     
+    # Запуск системы напоминаний
+    start_reminder_scheduler(bot) # Added call to scheduler
+    
     print("Bot is running...")
     
     from handlers.start import router as start_router
