@@ -401,6 +401,37 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext, bot:
     service_id = data.get("service_id")
     client_id = callback.from_user.id
     
+    # КРИТИЧНО: Проверить что время слота еще не прошло
+    slot_info = await get_slot_info(slot_id)
+    if not slot_info:
+        await callback.message.edit_text("❌ Слот не найден.")
+        await state.clear()
+        await callback.answer()
+        return
+    
+    datetime_str = slot_info[0]
+    
+    # Проверка времени
+    from datetime import datetime
+    try:
+        day_month, time = datetime_str.split()
+        day, month = map(int, day_month.split('.'))
+        hour, minute = map(int, time.split(':'))
+        now = datetime.now()
+        slot_dt = datetime(now.year, month, day, hour, minute)
+        
+        # Если слот в прошлом - отклонить
+        if slot_dt <= now:
+            await callback.message.edit_text(
+                "❌ К сожалению, это время уже прошло.\n"
+                "Пожалуйста, выберите другое окошко."
+            )
+            await state.clear()
+            await callback.answer()
+            return
+    except:
+        pass  # Если не удалось распарсить - продолжить (безопаснее)
+    
     success = await book_slot(slot_id, client_id, service_id)
     
     if success:
