@@ -1,3 +1,11 @@
+import os
+import time
+
+# Установка часового пояса Москвы (решает баг со сдвигом 3 часа на Linux серверах)
+os.environ['TZ'] = 'Europe/Moscow'
+if hasattr(time, 'tzset'):
+    time.tzset()
+
 import asyncio
 import logging
 from aiogram import Bot, Dispatcher
