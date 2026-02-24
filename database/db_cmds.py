@@ -197,7 +197,9 @@ async def get_slot_info(slot_id: int):
             return await cursor.fetchone()
 
 async def get_client_bookings(client_id: int):
-    """Get client bookings with full service details"""
+    """Get client bookings with full service details (only future)"""
+    from datetime import datetime
+    
     async with aiosqlite.connect(DB_NAME) as db:
         async with db.execute('''
             SELECT 
@@ -214,7 +216,24 @@ async def get_client_bookings(client_id: int):
             WHERE slots.client_id = ? AND slots.is_booked = 1 
             ORDER BY slots.datetime
         ''', (client_id,)) as cursor:
-            return await cursor.fetchall()
+            all_bookings = await cursor.fetchall()
+    
+    # Фильтруем прошедшие записи
+    now = datetime.now()
+    future_bookings = []
+    for booking in all_bookings:
+        datetime_str = booking[1]  # slots.datetime
+        try:
+            day_month, time = datetime_str.split()
+            day, month = map(int, day_month.split('.'))
+            hour, minute = map(int, time.split(':'))
+            slot_dt = datetime(now.year, month, day, hour, minute)
+            if slot_dt > now:
+                future_bookings.append(booking)
+        except:
+            continue
+    
+    return future_bookings
 
 async def cancel_booking_db(slot_id: int, client_id: int):
     async with aiosqlite.connect(DB_NAME) as db:

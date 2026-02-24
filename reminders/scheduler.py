@@ -18,10 +18,10 @@ async def get_upcoming_bookings(hours_ahead: int):
                 slots.client_id,
                 slots.datetime,
                 services.name,
-                masters.name
+                services.category,
+                services.subcategory
             FROM slots
             JOIN services ON slots.service_id = services.id
-            JOIN masters ON slots.master_id = masters.id
             WHERE slots.is_booked = 1
         '''
         async with db.execute(query) as cursor:
@@ -70,24 +70,22 @@ async def mark_reminder_sent(slot_id: int, client_id: int, reminder_type: str):
         )
         await db.commit()
 
-async def send_reminder(bot: Bot, client_id: int, datetime_str: str, service_name: str, master_name: str, reminder_type: str):
+async def send_reminder(bot: Bot, client_id: int, datetime_str: str, full_service: str, reminder_type: str):
     """Отправить напоминание клиенту"""
     try:
         if reminder_type == '24h':
             text = (
                 f"🔔 <b>Напоминание о записи</b>\n\n"
                 f"Завтра в <b>{datetime_str.split()[1]}</b> у вас запись:\n"
-                f"📋 {service_name}\n"
-                f"👤 Мастер: {master_name}\n\n"
-                f"Ждём вас! 💅"
+                f"💅 {full_service}\n\n"
+                f"Ждём вас! ✨"
             )
         else:  # 3h
             text = (
                 f"⏰ <b>Скоро ваша запись!</b>\n\n"
                 f"Сегодня в <b>{datetime_str.split()[1]}</b>:\n"
-                f"📋 {service_name}\n"
-                f"👤 Мастер: {master_name}\n\n"
-                f"До встречи! 💅"
+                f"💅 {full_service}\n\n"
+                f"До встречи! ✨"
             )
         
         await bot.send_message(client_id, text, parse_mode='HTML')
@@ -107,7 +105,14 @@ async def check_and_send_reminders(bot: Bot):
     bookings = await get_upcoming_bookings(48)
     
     for booking in bookings:
-        slot_id, client_id, datetime_str, service_name, master_name = booking
+        slot_id, client_id, datetime_str, service_name, svc_cat, svc_subcat = booking
+        
+        # Собираем полное название услуги
+        cat_clean = svc_cat.split(' ', 1)[1] if svc_cat and ' ' in svc_cat else (svc_cat or "")
+        if svc_subcat:
+            full_service = f"{cat_clean} ({svc_subcat}) • {service_name}"
+        else:
+            full_service = f"{cat_clean} • {service_name}" if cat_clean else service_name
         
         # Парсим дату записи
         slot_dt = parse_slot_datetime(datetime_str)
@@ -120,13 +125,13 @@ async def check_and_send_reminders(bot: Bot):
         # Напоминание за 24 часа (в диапазоне 23-24.5 часов)
         if timedelta(hours=23) <= time_diff < timedelta(hours=24, minutes=30):
             if not await check_if_reminder_sent(slot_id, '24h'):
-                await send_reminder(bot, client_id, datetime_str, service_name, master_name, '24h')
+                await send_reminder(bot, client_id, datetime_str, full_service, '24h')
                 await mark_reminder_sent(slot_id, client_id, '24h')
         
         # Напоминание за 3 часа (в диапазоне 2.5-3.5 часов)
         if timedelta(hours=2, minutes=30) <= time_diff < timedelta(hours=3, minutes=30):
             if not await check_if_reminder_sent(slot_id, '3h'):
-                await send_reminder(bot, client_id, datetime_str, service_name, master_name, '3h')
+                await send_reminder(bot, client_id, datetime_str, full_service, '3h')
                 await mark_reminder_sent(slot_id, client_id, '3h')
 
 def start_reminder_scheduler(bot: Bot):
