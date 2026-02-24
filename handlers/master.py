@@ -146,6 +146,15 @@ async def process_date_selection(callback: types.CallbackQuery, state: FSMContex
     selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     is_today = selected_date == now.date()
     
+    # Получаем уже существующие слоты на эту дату
+    existing_slots = await get_master_slots_with_ids(callback.from_user.id)
+    date_formatted = selected_date.strftime('%d.%m')
+    existing_times = set()
+    for slot in existing_slots:
+        slot_datetime = slot[1]  # "DD.MM HH:MM"
+        if slot_datetime.startswith(date_formatted):
+            existing_times.add(slot_datetime.split()[1])  # "HH:MM"
+    
     for hour in range(9, 21):
         for minute in [0, 30]:
             if hour == 20 and minute == 30:
@@ -157,6 +166,11 @@ async def process_date_selection(callback: types.CallbackQuery, state: FSMContex
                     continue
             
             time_str = f"{hour:02d}:{minute:02d}"
+            
+            # Пропускаем уже существующие окошки
+            if time_str in existing_times:
+                continue
+            
             kb.button(text=time_str, callback_data=f"time_{time_str}")
     
     kb.button(text="⬅️ Назад", callback_data="back_to_date")
