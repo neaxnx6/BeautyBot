@@ -312,28 +312,79 @@ def get_weekday_for_date(date_str: str):
     except:
         return ""
 
-@router.message(F.text == "📅 Мое Расписание")
-async def view_schedule(message: types.Message):
-    text, markup = await build_schedule_message(message.from_user.id)
-    await message.answer(text, reply_markup=markup)
-
-@router.callback_query(F.data.startswith("schedule_day_"))
-async def view_day_schedule(callback: types.CallbackQuery, state: FSMContext):
-    """Show slots for a specific day - level 2"""
-    from datetime import datetime
+async def build_calendar_data(user_id: int, year: int, month: int):
+    """Get sets of days with free/booked slots for a given month"""
     from collections import defaultdict
     
-    date_str = callback.data.split("_")[2] # "DD.MM"
+    slots = await get_master_slots_with_ids(user_id)
+    
+    days_with_free = set()
+    days_with_booked = set()
+    
+    for row in slots:
+        time_str = row[1]  # "DD.MM HH:MM"
+        is_booked = row[2]
+        
+        if is_slot_in_past(time_str):
+            continue
+        
+        try:
+            date_part = time_str.split()[0]  # "DD.MM"
+            day, mon = map(int, date_part.split('.'))
+            if mon == month:
+                if is_booked == 1:
+                    days_with_booked.add(day)
+                else:
+                    days_with_free.add(day)
+        except:
+            continue
+    
+    return days_with_free, days_with_booked
+
+@router.message(F.text == "📅 Мое Расписание")
+async def view_schedule(message: types.Message):
+    from keyboards.calendar import build_month_calendar
+    now = datetime.now()
+    days_free, days_booked = await build_calendar_data(message.from_user.id, now.year, now.month)
+    markup = build_month_calendar(now.year, now.month, days_free, days_booked)
+    await message.answer("📅 *Ваше расписание*\n🟢 свободные  🔵 заняты  📍 сегодня", reply_markup=markup)
+
+@router.callback_query(F.data == "cal_ignore")
+async def calendar_ignore(callback: types.CallbackQuery):
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("cal_prev_"))
+async def calendar_prev_month(callback: types.CallbackQuery):
+    from keyboards.calendar import build_month_calendar
+    parts = callback.data.split("_")[2]  # "YYYY-MM"
+    year, month = map(int, parts.split("-"))
+    days_free, days_booked = await build_calendar_data(callback.from_user.id, year, month)
+    markup = build_month_calendar(year, month, days_free, days_booked)
+    await callback.message.edit_text("📅 *Ваше расписание*\n🟢 свободные  🔵 заняты  📍 сегодня", reply_markup=markup)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("cal_next_"))
+async def calendar_next_month(callback: types.CallbackQuery):
+    from keyboards.calendar import build_month_calendar
+    parts = callback.data.split("_")[2]  # "YYYY-MM"
+    year, month = map(int, parts.split("-"))
+    days_free, days_booked = await build_calendar_data(callback.from_user.id, year, month)
+    markup = build_month_calendar(year, month, days_free, days_booked)
+    await callback.message.edit_text("📅 *Ваше расписание*\n🟢 свободные  🔵 заняты  📍 сегодня", reply_markup=markup)
+    await callback.answer()
+
+@router.callback_query(F.data.startswith("cal_day_"))
+async def calendar_day_click(callback: types.CallbackQuery, state: FSMContext):
+    """Calendar day clicked - show day schedule"""
+    date_str = callback.data.split("_")[2]  # "DD.MM"
     
     slots = await get_master_slots_with_ids(callback.from_user.id)
     
-    # Filter out past slots and group by date
     slots_for_day = []
     for row in slots:
-        time_str = row[1]  # datetime is second field
+        time_str = row[1]
         if not is_slot_in_past(time_str):
-            current_slot_date_part = time_str.split()[0]
-            if current_slot_date_part == date_str:
+            if time_str.split()[0] == date_str:
                 slots_for_day.append(row)
     
     if not slots_for_day:
@@ -341,40 +392,49 @@ async def view_day_schedule(callback: types.CallbackQuery, state: FSMContext):
         return
     
     kb = InlineKeyboardBuilder()
-    
-    # Sort slots by time
     slots_for_day.sort(key=lambda x: datetime.strptime(x[1], "%d.%m %H:%M"))
     
-    # Count booked slots
-    booked_count = sum(1 for row in slots_for_day if row[2] == 1)
-    free_count = len(slots_for_day) - booked_count
-    
-    text = f"📅 *Расписание на {get_weekday_for_date(date_str)} {date_str}*\n_(Нажмите на слот для деталей)_\n\n"
+    text = f"📅 *{get_weekday_for_date(date_str)} {date_str}*\n_(Нажмите на слот для деталей)_\n\n"
     
     for row in slots_for_day:
         slot_id, time_str, is_booked = row[0], row[1], row[2]
-        # Extract only time part (HH:MM) from "DD.MM HH:MM"
         time_only = time_str.split()[1] if ' ' in time_str else time_str
         status_text = "свободно" if is_booked == 0 else "занято"
         emoji = "✅" if is_booked == 0 else "🔴"
         kb.button(text=f"{emoji} {time_only} — {status_text}", callback_data=f"view_slot_{slot_id}")
     
-    # Add "Clear day" button
     kb.button(text=f"🗑 Удалить день ({pluralize_slots(len(slots_for_day))})", callback_data=f"clear_day_{date_str}")
-    kb.button(text="⬅️ Назад к дням", callback_data="back_to_schedule_overview")
+    kb.button(text="⬅️ К календарю", callback_data="back_to_schedule_overview")
     kb.adjust(1)
     
     await callback.message.edit_text(text, reply_markup=kb.as_markup())
     await callback.answer()
 
-@router.callback_query(F.data == "back_to_schedule_overview")
-async def back_to_schedule_overview(callback: types.CallbackQuery):
-    """Return to the main schedule overview (days)"""
+@router.callback_query(F.data.startswith("schedule_day_"))
+async def view_day_schedule(callback: types.CallbackQuery, state: FSMContext):
+    """Legacy: redirect to calendar day view"""
+    date_str = callback.data.split("_")[2]
+    callback.data = f"cal_day_{date_str}"
+    await calendar_day_click(callback, state)
+
+@router.callback_query(F.data == "schedule_list_view")
+async def schedule_list_view(callback: types.CallbackQuery):
+    """Show old list view"""
     text, markup = await build_schedule_message(callback.from_user.id)
     if markup:
         await callback.message.edit_text(text, reply_markup=markup)
     else:
         await callback.message.edit_text("📅 Расписание пусто.")
+    await callback.answer()
+
+@router.callback_query(F.data == "back_to_schedule_overview")
+async def back_to_schedule_overview(callback: types.CallbackQuery):
+    """Return to calendar view"""
+    from keyboards.calendar import build_month_calendar
+    now = datetime.now()
+    days_free, days_booked = await build_calendar_data(callback.from_user.id, now.year, now.month)
+    markup = build_month_calendar(now.year, now.month, days_free, days_booked)
+    await callback.message.edit_text("📅 *Ваше расписание*\n🟢 свободные  🔵 заняты  📍 сегодня", reply_markup=markup)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("clear_day_"))
