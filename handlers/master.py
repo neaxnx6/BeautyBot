@@ -354,6 +354,10 @@ async def view_schedule(message: types.Message):
 async def calendar_ignore(callback: types.CallbackQuery):
     await callback.answer()
 
+@router.callback_query(F.data == "cal_past")
+async def calendar_past(callback: types.CallbackQuery):
+    await callback.answer("Этот день уже прошёл.", show_alert=True)
+
 @router.callback_query(F.data.startswith("cal_prev_"))
 async def calendar_prev_month(callback: types.CallbackQuery):
     from keyboards.calendar import build_month_calendar

@@ -70,7 +70,7 @@ def build_month_calendar(year: int, month: int, days_with_free: set, days_with_b
                 
                 if is_past:
                     # Past day - unclickable, number only
-                    kb.button(text=f"{day}", callback_data="cal_ignore")
+                    kb.button(text=f"{day}", callback_data="cal_past")
                 else:
                     if has_free:
                         label = f"🟢{day}"
