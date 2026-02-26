@@ -18,17 +18,23 @@ def build_month_calendar(year: int, month: int, days_with_free: set, days_with_b
     """
     Build inline keyboard calendar for a given month.
     
-    Indicators (compact, no emoji):
-      [26]  = today
-      26·   = has free slots
-      26✕   = all booked (no free slots left)
+    Indicators:
+      📍26  = today (no slots)
+      🟢26  = has free slots
+      🔴26  = all booked (no free slots left)
       26    = no slots at all
-      past days = unclickable
+      " "   = past days (unclickable empty cell)
     """
     kb = InlineKeyboardBuilder()
     
-    # Header: month name + year
-    kb.button(text=f"📅 {MONTHS_RU[month]} {year}", callback_data="cal_ignore")
+    # Calculate prev/next month for navigation
+    prev_month, prev_year = (12, year - 1) if month == 1 else (month - 1, year)
+    next_month, next_year = (1, year + 1) if month == 12 else (month + 1, year)
+    
+    # Header: [<] [Month Year] [>]
+    kb.button(text="◀️", callback_data=f"cal_prev_{prev_year}-{prev_month:02d}")
+    kb.button(text=f"{MONTHS_RU[month]} {year}", callback_data="cal_ignore")
+    kb.button(text="▶️", callback_data=f"cal_next_{next_year}-{next_month:02d}")
     
     # Weekday headers
     for day_name in WEEKDAYS_SHORT:
@@ -37,7 +43,6 @@ def build_month_calendar(year: int, month: int, days_with_free: set, days_with_b
     # Calendar grid
     cal = calendar.Calendar(firstweekday=0)
     today = datetime.now()
-    
     month_days = cal.monthdayscalendar(year, month)
     
     for week in month_days:
@@ -46,11 +51,10 @@ def build_month_calendar(year: int, month: int, days_with_free: set, days_with_b
                 kb.button(text=" ", callback_data="cal_ignore")
             else:
                 date_str = f"{day:02d}.{month:02d}"
-                
                 is_today = (year == today.year and month == today.month and day == today.day)
-                is_past = False
                 
                 # Check if day is in the past
+                is_past = False
                 try:
                     day_dt = datetime(year, month, day, 23, 59)
                     if day_dt < today and not is_today:
@@ -62,45 +66,27 @@ def build_month_calendar(year: int, month: int, days_with_free: set, days_with_b
                 has_booked = day in days_with_booked
                 
                 if is_past:
-                    # Past day - unclickable, dimmed
-                    kb.button(text=f"  {day}  ", callback_data="cal_ignore")
-                elif is_today:
-                    if has_free:
-                        label = f"[{day}·]"
-                    elif has_booked:
-                        label = f"[{day}✕]"
-                    else:
-                        label = f"[{day}]"
-                    kb.button(text=label, callback_data=f"cal_day_{date_str}")
-                elif has_free:
-                    kb.button(text=f"{day}·", callback_data=f"cal_day_{date_str}")
-                elif has_booked:
-                    kb.button(text=f"{day}✕", callback_data=f"cal_day_{date_str}")
+                    # Past day - empty cell to declutter UI
+                    kb.button(text=" ", callback_data="cal_ignore")
                 else:
-                    kb.button(text=f"{day}", callback_data=f"cal_day_{date_str}")
+                    if has_free:
+                        label = f"🟢{day}"
+                    elif has_booked:
+                        label = f"🔴{day}"
+                    elif is_today:
+                        label = f"📍{day}"
+                    else:
+                        label = f"{day}"
+                    kb.button(text=label, callback_data=f"cal_day_{date_str}")
     
-    # Navigation row
-    prev_month = month - 1
-    prev_year = year
-    if prev_month < 1:
-        prev_month = 12
-        prev_year -= 1
-    
-    next_month = month + 1
-    next_year = year
-    if next_month > 12:
-        next_month = 1
-        next_year += 1
-    
-    kb.button(text="◀️", callback_data=f"cal_prev_{prev_year}-{prev_month:02d}")
+    # Bottom actions
     kb.button(text="📋 Список", callback_data="schedule_list_view")
-    kb.button(text="▶️", callback_data=f"cal_next_{next_year}-{next_month:02d}")
     
     # Layout
-    sizes = [1, 7]
-    for week in month_days:
+    sizes = [3, 7]  # header row (3 nav buttons) + weekday row (7)
+    for _ in month_days:
         sizes.append(7)
-    sizes.append(3)
+    sizes.append(1)  # bottom list button
     
     kb.adjust(*sizes)
     return kb.as_markup()

@@ -348,7 +348,7 @@ async def view_schedule(message: types.Message):
     now = datetime.now()
     days_free, days_booked = await build_calendar_data(message.from_user.id, now.year, now.month)
     markup = build_month_calendar(now.year, now.month, days_free, days_booked)
-    await message.answer("📅 *Ваше расписание*\n· свободные  ✕ все заняты  \\[N] сегодня", reply_markup=markup)
+    await message.answer("📅 *Ваше расписание*\n🟢 свободные  🔴 все заняты  📍 сегодня", reply_markup=markup)
 
 @router.callback_query(F.data == "cal_ignore")
 async def calendar_ignore(callback: types.CallbackQuery):
@@ -361,7 +361,7 @@ async def calendar_prev_month(callback: types.CallbackQuery):
     year, month = map(int, parts.split("-"))
     days_free, days_booked = await build_calendar_data(callback.from_user.id, year, month)
     markup = build_month_calendar(year, month, days_free, days_booked)
-    await callback.message.edit_text("📅 *Ваше расписание*\n· свободные  ✕ все заняты  \\[N] сегодня", reply_markup=markup)
+    await callback.message.edit_text("📅 *Ваше расписание*\n🟢 свободные  🔴 все заняты  📍 сегодня", reply_markup=markup)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("cal_next_"))
@@ -371,7 +371,7 @@ async def calendar_next_month(callback: types.CallbackQuery):
     year, month = map(int, parts.split("-"))
     days_free, days_booked = await build_calendar_data(callback.from_user.id, year, month)
     markup = build_month_calendar(year, month, days_free, days_booked)
-    await callback.message.edit_text("📅 *Ваше расписание*\n· свободные  ✕ все заняты  \\[N] сегодня", reply_markup=markup)
+    await callback.message.edit_text("📅 *Ваше расписание*\n🟢 свободные  🔴 все заняты  📍 сегодня", reply_markup=markup)
     await callback.answer()
 
 @router.callback_query(F.data.startswith("cal_day_"))
