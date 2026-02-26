@@ -55,6 +55,7 @@ async def init_db():
 
         # Table: Slots (Schedule)
         # Added service_id to track what is booked
+        # Added blocked_by to track duration-based blocking
         await db.execute('''
             CREATE TABLE IF NOT EXISTS slots (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,17 +64,23 @@ async def init_db():
                 is_booked BOOLEAN DEFAULT 0,
                 client_id INTEGER,
                 service_id INTEGER,
+                blocked_by INTEGER,
                 FOREIGN KEY(master_id) REFERENCES masters(id),
                 FOREIGN KEY(client_id) REFERENCES users(id),
-                FOREIGN KEY(service_id) REFERENCES services(id)
+                FOREIGN KEY(service_id) REFERENCES services(id),
+                FOREIGN KEY(blocked_by) REFERENCES slots(id)
             )
         ''')
         
-        # Migration for existing slots (try/except safe check)
+        # Migration for existing slots
         try:
             await db.execute("ALTER TABLE slots ADD COLUMN service_id INTEGER")
         except:
-            pass # Column likely exists
+            pass
+        try:
+            await db.execute("ALTER TABLE slots ADD COLUMN blocked_by INTEGER")
+        except:
+            pass
         
         # Table: Schedule Template (Weekly recurring slots)
         await db.execute('''

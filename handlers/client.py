@@ -209,7 +209,14 @@ async def show_slots_logic(message: types.Message, state: FSMContext, edit_messa
     master_id = data.get("master_id")
     service_id = data.get("service_id")
     
-    slots = await get_available_slots(master_id)
+    # Получаем длительность выбранной услуги
+    svc_duration = 30
+    if service_id:
+        svc_info = await get_service_info(service_id)
+        if svc_info and svc_info[2]:
+            svc_duration = svc_info[2]
+    
+    slots = await get_available_slots(master_id, svc_duration)
     
     if not slots:
         text = "Пока нет свободных окошек 🥺\nПопробуйте позже!"
@@ -273,7 +280,14 @@ async def show_day_times(callback: types.CallbackQuery, state: FSMContext):
     master_id = data.get("master_id")
     service_id = data.get("service_id")
     
-    slots = await get_available_slots(master_id)
+    # Получаем длительность выбранной услуги
+    svc_duration = 30
+    if service_id:
+        svc_info = await get_service_info(service_id)
+        if svc_info and svc_info[2]:
+            svc_duration = svc_info[2]
+    
+    slots = await get_available_slots(master_id, svc_duration)
     
     # Filter slots for this day
     day_slots = [(s_id, s_time) for s_id, s_time in slots if s_time.startswith(date_str)]
