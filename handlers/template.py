@@ -35,7 +35,7 @@ async def get_day_counts(master_id: int) -> dict:
     return counts
 
 # --- Main Template Menu ---
-@router.message(F.text == "📋 Шаблон Недели")
+@router.message(F.text == "🗓 Шаблон")
 async def show_weekly_template(message: types.Message):
     master_id = await get_master_id_by_tg_id(message.from_user.id)
     counts = await get_day_counts(master_id)
@@ -233,7 +233,7 @@ async def process_delete_vacation(callback: types.CallbackQuery):
     await callback.answer("✅ Выходной удален!")
 
 # --- Other Menu ---
-@router.message(F.text == "📎 Другое")
+@router.message(F.text == "⚙️ Настройки")
 async def show_other_menu(message: types.Message):
     text = "📎 *Дополнительно*\n\nВыберите раздел:"
     await message.answer(text, reply_markup=other_menu_kb())

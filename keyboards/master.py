@@ -2,9 +2,9 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
 def master_panel_kb():
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📋 Шаблон Недели"), KeyboardButton(text="📅 Мое Расписание")],
-        [KeyboardButton(text="➕ Добавить Окошко"), KeyboardButton(text="📎 Другое")],
-        [KeyboardButton(text="🔙 Главное Меню")]
+        [KeyboardButton(text="🗓 Шаблон"), KeyboardButton(text="📅 Расписание")],
+        [KeyboardButton(text="✅ Добавить время"), KeyboardButton(text="⚙️ Настройки")],
+        [KeyboardButton(text="🏠 Главное меню")]
     ], resize_keyboard=True)
 
 def cancel_kb():
