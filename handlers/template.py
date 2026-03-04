@@ -15,7 +15,7 @@ from keyboards.template import (
     weekly_template_kb, day_time_selector_kb, generation_period_kb,
     min_booking_time_kb, vacation_management_kb, other_menu_kb
 )
-from handlers.master import build_date_keyboard
+from keyboards.master import build_date_keyboard
 
 router = Router()
 
