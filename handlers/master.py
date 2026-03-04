@@ -66,6 +66,12 @@ async def open_master_panel(message: types.Message):
 
     # Removed formal greeting, just show the keyboard
     await message.answer("👩‍🎨 Панель мастера:", reply_markup=master_panel_kb())
+    
+    from keyboards.calendar import build_month_calendar
+    now = datetime.now()
+    days_free, days_booked = await build_calendar_data(message.from_user.id, now.year, now.month)
+    markup = build_month_calendar(now.year, now.month, days_free, days_booked)
+    await message.answer("📅 *Ваше расписание*\n🟢 свободные  🔴 все заняты  📍 сегодня", reply_markup=markup)
 
 @router.message(F.text == "🏠 Главное меню")
 async def back_to_main(message: types.Message):
@@ -89,61 +95,18 @@ async def get_my_link(message: types.Message, bot: Bot):
         disable_web_page_preview=True
     )
 
-def build_date_keyboard():
-    """Build date selection keyboard for 14 days."""
-    kb = InlineKeyboardBuilder()
-    today = datetime.now()
+# --- Add Slot Flow (Integrated with Calendar) ---
+@router.callback_query(F.data.startswith("addslot_"))
+async def process_addslot_calendar(callback: types.CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    full_date_str = parts[1]  # "YYYY-MM-DD"
+    year_month = parts[2] if len(parts) > 2 else f"{datetime.now().year}-{datetime.now().month:02d}"
     
-    for i in range(14):  # 14 days instead of 7
-        date = today + timedelta(days=i)
-        weekday = WEEKDAYS_FULL[date.weekday()]
-        
-        if i == 0:
-            label = f"Сегодня ({date.strftime('%d.%m')})"
-        elif i == 1:
-            label = f"Завтра ({date.strftime('%d.%m')})"
-        else:
-            # Weekday + date, no "Послезавтра"
-            label = f"{weekday} {date.strftime('%d.%m')}"
-        
-        kb.button(text=label, callback_data=f"date_{date.strftime('%Y-%m-%d')}")
-    
-    kb.button(text="📝 Ввести вручную", callback_data="manual_slot")
-    kb.button(text="❌ Отмена", callback_data="cancel_slot")
-    kb.adjust(2)
-    return kb
-
-def build_time_keyboard():
-    """Build time selection keyboard (9:00-20:30)"""
-    kb = InlineKeyboardBuilder()
-    
-    for hour in range(9, 21):
-        for minute in [0, 30]:
-            if hour == 20 and minute == 30:
-                continue
-            time_str = f"{hour:02d}:{minute:02d}"
-            kb.button(text=time_str, callback_data=f"time_{time_str}")
-    
-    kb.button(text="❌ Отмена", callback_data="cancel_slot")
-    kb.adjust(4)
-    return kb
-
-
-# --- Add Slot Flow (Calendar) ---
-@router.message(F.text.in_(["✅ Добавить время", "➕ Добавить Слот"]))
-async def start_add_slot(message: types.Message, state: FSMContext):
-    kb = build_date_keyboard()
-    await message.answer("📅 Выберите дату:", reply_markup=kb.as_markup())
-    await state.set_state(MasterStates.selecting_date)
-
-@router.callback_query(F.data.startswith("date_"))
-async def process_date_selection(callback: types.CallbackQuery, state: FSMContext):
-    date_str = callback.data.split("_")[1]
-    await state.update_data(selected_date=date_str)
+    await state.update_data(selected_date=full_date_str, return_ym=year_month)
     
     kb = InlineKeyboardBuilder()
     now = datetime.now()
-    selected_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+    selected_date = datetime.strptime(full_date_str, "%Y-%m-%d").date()
     is_today = selected_date == now.date()
     
     # Получаем уже существующие слоты на эту дату
@@ -157,29 +120,22 @@ async def process_date_selection(callback: types.CallbackQuery, state: FSMContex
     
     for hour in range(9, 21):
         for minute in [0, 30]:
-            if hour == 20 and minute == 30:
-                continue
-            
+            if hour == 20 and minute == 30: continue
             if is_today:
                 slot_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-                if slot_time <= now:
-                    continue
+                if slot_time <= now: continue
             
             time_str = f"{hour:02d}:{minute:02d}"
-            
-            # Пропускаем уже существующие окошки
-            if time_str in existing_times:
-                continue
+            if time_str in existing_times: continue
             
             kb.button(text=time_str, callback_data=f"time_{time_str}")
     
-    kb.button(text="⬅️ Назад", callback_data="back_to_date")
-    kb.button(text="❌ Отмена", callback_data="cancel_slot")
+    date_str_short = selected_date.strftime('%d.%m')
+    kb.button(text="⬅️ Назад", callback_data=f"cal_day_{date_str_short}_{year_month}")
     kb.adjust(4)
     
-    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-    weekday = WEEKDAYS_FULL[date_obj.weekday()]
-    display_date = f"{weekday} {date_obj.strftime('%d.%m')}"
+    weekday = WEEKDAYS_FULL[selected_date.weekday()]
+    display_date = f"{weekday} {date_formatted}"
     
     await callback.message.edit_text(f"🕐 Выберите время на *{display_date}*:", reply_markup=kb.as_markup())
     await state.set_state(MasterStates.selecting_time)
@@ -190,6 +146,7 @@ async def process_time_selection(callback: types.CallbackQuery, state: FSMContex
     time_str = callback.data.split("_")[1]
     data = await state.get_data()
     date_str = data.get("selected_date")
+    year_month = data.get("return_ym", f"{datetime.now().year}-{datetime.now().month:02d}")
     
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     full_datetime = f"{date_obj.strftime('%d.%m')} {time_str}"
@@ -197,21 +154,16 @@ async def process_time_selection(callback: types.CallbackQuery, state: FSMContex
     result = await add_slot(callback.from_user.id, full_datetime)
     
     if result == True:
-        await callback.message.edit_text(f"✅ Окошко на *{full_datetime}* добавлено!")
+        await callback.answer(f"✅ Окошко на {full_datetime} добавлено!", show_alert=True)
     elif result == "duplicate":
-        await callback.message.edit_text(f"❌ Такое окошко уже существует: *{full_datetime}*")
+        await callback.answer(f"❌ Такое окошко уже существует!", show_alert=True)
     else:
-        await callback.message.edit_text("❌ Ошибка: Профиль мастера не найден.")
+        await callback.answer("❌ Ошибка: Профиль мастера не найден.", show_alert=True)
     
-    await state.clear()
-    await callback.answer()
-
-@router.callback_query(F.data == "back_to_date")
-async def back_to_date_selection(callback: types.CallbackQuery, state: FSMContext):
-    kb = build_date_keyboard()
-    await callback.message.edit_text("📅 Выберите дату:", reply_markup=kb.as_markup())
-    await state.set_state(MasterStates.selecting_date)
-    await callback.answer()
+    # Вернуться обратно в список окошек на этот день
+    date_str_short = date_obj.strftime('%d.%m')
+    callback.data = f"cal_day_{date_str_short}_{year_month}"
+    await calendar_day_click(callback, state)
 
 @router.callback_query(F.data == "manual_slot")
 async def manual_slot_entry(callback: types.CallbackQuery, state: FSMContext):
@@ -394,8 +346,19 @@ async def calendar_day_click(callback: types.CallbackQuery, state: FSMContext):
             if time_str.split()[0] == date_str:
                 slots_for_day.append(row)
     
+    day, current_month = date_str.split(".")
+    year = year_month.split("-")[0]
+    full_date_str = f"{year}-{current_month}-{day}"
+    
     if not slots_for_day:
-        await callback.answer("На этот день нет окошек.", show_alert=True)
+        kb = InlineKeyboardBuilder()
+        kb.button(text="➕ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
+        kb.button(text="⬅️ К календарю", callback_data=f"back_to_calendar_{year_month}")
+        kb.adjust(1)
+        
+        text = f"📅 *{get_weekday_for_date(date_str)} {date_str}*\n\nНа этот день нет окошек. Хотите добавить?"
+        await callback.message.edit_text(text, reply_markup=kb.as_markup())
+        await callback.answer()
         return
     
     kb = InlineKeyboardBuilder()
@@ -410,6 +373,7 @@ async def calendar_day_click(callback: types.CallbackQuery, state: FSMContext):
         emoji = "✅" if is_booked == 0 else "🔴"
         kb.button(text=f"{emoji} {time_only} — {status_text}", callback_data=f"view_slot_{slot_id}")
     
+    kb.button(text="➕ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
     kb.button(text=f"🗑 Удалить день ({pluralize_slots(len(slots_for_day))})", callback_data=f"clear_day_{date_str}")
     kb.button(text="⬅️ К календарю", callback_data=f"back_to_calendar_{year_month}")
     kb.adjust(1)
