@@ -14,11 +14,12 @@ def weekly_template_kb(day_counts: dict):
         count = day_counts.get(day, 0)
         kb.button(text=f"{WEEKDAYS_SHORT[day]} ({count})", callback_data=f"day_{day}")
     
-    # Action button
+    # Action buttons
     kb.button(text="🔄 Сгенерировать окошки", callback_data="template_generate")
+    kb.button(text="⬅️ К календарю", callback_data="back_to_schedule_overview")
     
-    # Layout: 4 days, 3 days, 1 generation button
-    kb.adjust(4, 3, 1)
+    # Layout: 4 days, 3 days, 1 generation button, 1 back button
+    kb.adjust(4, 3, 1, 1)
     
     return kb.as_markup()
 

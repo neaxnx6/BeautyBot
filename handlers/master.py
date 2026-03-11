@@ -160,16 +160,29 @@ async def process_time_selection(callback: types.CallbackQuery, state: FSMContex
     
     if result == True:
         await callback.answer(f"Окошко {time_str} добавлено!", show_alert=False)
+        
+        # Обновляем текущую инлайн-клавиатуру напрямую для моментального визуального отклика
+        markup = callback.message.reply_markup
+        if markup:
+            kb_new = InlineKeyboardBuilder()
+            for row in markup.inline_keyboard:
+                row_buttons = []
+                for btn in row:
+                    if btn.callback_data == f"time_{time_str}":
+                        # Заменяем кнопку на зеленую галочку
+                        row_buttons.append(types.InlineKeyboardButton(text=f"✅ {time_str}", callback_data=f"time_added_{time_str}"))
+                    else:
+                        row_buttons.append(btn)
+                kb_new.row(*row_buttons)
+            
+            try:
+                await callback.message.edit_reply_markup(reply_markup=kb_new.as_markup())
+            except Exception:
+                pass
     elif result == "duplicate":
         await callback.answer(f"❌ Такое окошко уже существует!", show_alert=True)
     else:
         await callback.answer("❌ Ошибка: Профиль мастера не найден.", show_alert=True)
-    
-    # Stay in the time selection grid to allow adding more slots
-    callback_copy = callback
-    callback_copy.data = f"addslot_{date_str}_{year_month}"
-    
-    await process_addslot_calendar(callback_copy, state)
 
 @router.callback_query(F.data == "manual_slot")
 async def manual_slot_entry(callback: types.CallbackQuery, state: FSMContext):
@@ -358,7 +371,7 @@ async def calendar_day_click(callback: types.CallbackQuery, state: FSMContext):
     
     if not slots_for_day:
         kb = InlineKeyboardBuilder()
-        kb.button(text="✅ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
+        kb.button(text="🕒 Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
         kb.button(text="⬅️ К календарю", callback_data=f"back_to_calendar_{year_month}")
         kb.adjust(1)
         
@@ -379,7 +392,7 @@ async def calendar_day_click(callback: types.CallbackQuery, state: FSMContext):
         emoji = "✅" if is_booked == 0 else "🔴"
         kb.button(text=f"{emoji} {time_only} — {status_text}", callback_data=f"view_slot_{slot_id}")
     
-    kb.button(text="✅ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
+    kb.button(text="🕒 Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
     kb.button(text=f"🗑 Удалить день ({pluralize_slots(len(slots_for_day))})", callback_data=f"clear_day_{date_str}")
     kb.button(text="⬅️ К календарю", callback_data=f"back_to_calendar_{year_month}")
     kb.adjust(1)
