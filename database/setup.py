@@ -28,9 +28,16 @@ async def init_db():
                 id INTEGER PRIMARY KEY,
                 telegram_id INTEGER UNIQUE,
                 name TEXT,
-                description TEXT
+                description TEXT,
+                google_calendar_id TEXT
             )
         ''')
+        
+        # Migration for existing masters
+        try:
+            await db.execute("ALTER TABLE masters ADD COLUMN google_calendar_id TEXT")
+        except:
+            pass # Column likely exists
         
         # Table: Services
         await db.execute('''

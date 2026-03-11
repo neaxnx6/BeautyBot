@@ -38,6 +38,12 @@ async def register_master(telegram_id: int, name: str):
         await db.execute("INSERT INTO masters (telegram_id, name) VALUES (?, ?)", (telegram_id, name))
         await db.commit()
 
+async def get_master_google_calendar_id(master_id: int):
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute("SELECT google_calendar_id FROM masters WHERE id = ?", (master_id,)) as cursor:
+            result = await cursor.fetchone()
+            return result[0] if result else None
+
 # --- Services Management (New) ---
 async def get_service_categories(master_id: int) -> List[str]:
     """Get all service categories in desired order."""
@@ -159,6 +165,36 @@ async def get_available_slots(master_id: int, service_duration: int = 30):
     
     # Parse booked slots with their durations
     booked_ranges = []
+    
+    # --- Integration with Google Calendar ---
+    google_cal_id = await get_master_google_calendar_id(master_id)
+    if google_cal_id:
+        from utils.google_calendar import get_occupied_slots
+        # We need to fetch occupied slots for the next 14 days (or however many we show)
+        # But for optimization, we can fetch only for the dates of slots we have in DB
+        dates_to_check = set()
+        for _, datetime_str in all_slots:
+            try:
+                day_month = datetime_str.split()[0]
+                day, month = map(int, day_month.split('.'))
+                dates_to_check.add(f"{datetime.now().year}-{month:02d}-{day:02d}")
+            except:
+                continue
+        
+        for date_to_fetch in dates_to_check:
+            google_occupied = await get_occupied_slots(google_cal_id, date_to_fetch)
+            for start_str, end_str in google_occupied:
+                try:
+                    # Parse 'HH:MM' from Google into datetime
+                    y, m, d = map(int, date_to_fetch.split('-'))
+                    sh, sm = map(int, start_str.split(':'))
+                    eh, em = map(int, end_str.split(':'))
+                    g_start = datetime(y, m, d, sh, sm)
+                    g_end = datetime(y, m, d, eh, em)
+                    booked_ranges.append((g_start, g_end))
+                except:
+                    continue
+
     for _, booked_dt_str, booked_svc_id in booked_slots:
         booked_dt = _parse_slot_dt(booked_dt_str)
         if not booked_dt:
