@@ -165,20 +165,23 @@ async def process_time_selection(callback: types.CallbackQuery, state: FSMContex
         markup = callback.message.reply_markup
         if markup:
             kb_new = InlineKeyboardBuilder()
+            
+            # Перестраиваем клавиатуру, заменяя текст и callback_data нужной кнопки
             for row in markup.inline_keyboard:
-                row_buttons = []
                 for btn in row:
                     if btn.callback_data == f"time_{time_str}":
-                        # Заменяем кнопку на зеленую галочку
-                        row_buttons.append(types.InlineKeyboardButton(text=f"✅ {time_str}", callback_data=f"time_added_{time_str}"))
+                        kb_new.button(text=f"✅ {time_str}", callback_data=f"time_added_{time_str}")
                     else:
-                        row_buttons.append(btn)
-                kb_new.row(*row_buttons)
+                        kb_new.button(text=btn.text, callback_data=btn.callback_data)
+            
+            # В меню выбора времени у нас по 4 кнопки в ряд
+            kb_new.adjust(4)
             
             try:
                 await callback.message.edit_reply_markup(reply_markup=kb_new.as_markup())
-            except Exception:
-                pass
+            except Exception as e:
+                import logging
+                logging.error(f"Failed to update time inline keyboard: {e}")
     elif result == "duplicate":
         await callback.answer(f"❌ Такое окошко уже существует!", show_alert=True)
     else:
