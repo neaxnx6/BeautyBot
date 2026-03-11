@@ -247,7 +247,8 @@ async def back_to_other(callback: types.CallbackQuery):
 @router.callback_query(F.data == "back_to_master_panel")
 async def back_to_panel(callback: types.CallbackQuery, state: FSMContext):
     await state.clear()
-    await callback.message.delete()
+    from handlers.master import back_to_schedule_overview
+    await back_to_schedule_overview(callback)
     await callback.answer()
 
 @router.callback_query(F.data == "my_link")

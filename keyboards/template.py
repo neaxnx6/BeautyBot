@@ -16,7 +16,7 @@ def weekly_template_kb(day_counts: dict):
     
     # Action buttons
     kb.button(text="🔄 Сгенерировать окошки", callback_data="template_generate")
-    kb.button(text="❌ Закрыть", callback_data="back_to_master_panel")
+    kb.button(text="⬅️ Назад", callback_data="back_to_master_panel")
     
     # Layout: 4 days, 3 days, 1 generation button, 1 back button
     kb.adjust(4, 3, 1, 1)
