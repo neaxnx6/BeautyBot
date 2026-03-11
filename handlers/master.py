@@ -126,9 +126,10 @@ async def process_addslot_calendar(callback: types.CallbackQuery, state: FSMCont
                 if slot_time <= now: continue
             
             time_str = f"{hour:02d}:{minute:02d}"
-            if time_str in existing_times: continue
-            
-            kb.button(text=time_str, callback_data=f"time_{time_str}")
+            if time_str in existing_times:
+                kb.button(text=f"✅ {time_str}", callback_data=f"time_added_{time_str}")
+            else:
+                kb.button(text=time_str, callback_data=f"time_{time_str}")
     
     date_str_short = selected_date.strftime('%d.%m')
     kb.button(text="⬅️ Назад", callback_data=f"cal_day_{date_str_short}_{year_month}")
@@ -143,6 +144,10 @@ async def process_addslot_calendar(callback: types.CallbackQuery, state: FSMCont
 
 @router.callback_query(F.data.startswith("time_"))
 async def process_time_selection(callback: types.CallbackQuery, state: FSMContext):
+    if callback.data.startswith("time_added_"):
+        await callback.answer("Это время уже добавлено!", show_alert=True)
+        return
+
     time_str = callback.data.split("_")[1]
     data = await state.get_data()
     date_str = data.get("selected_date")
@@ -151,19 +156,20 @@ async def process_time_selection(callback: types.CallbackQuery, state: FSMContex
     date_obj = datetime.strptime(date_str, "%Y-%m-%d")
     full_datetime = f"{date_obj.strftime('%d.%m')} {time_str}"
     
-    result = await add_slot(callback.from_user.id, full_datetime)
+    result = await add_slot(callback.fromuser.id if hasattr(callback, "fromuser") else callback.from_user.id, full_datetime)
     
     if result == True:
-        await callback.answer(f"✅ Окошко на {full_datetime} добавлено!", show_alert=True)
+        await callback.answer(f"Окошко {time_str} добавлено!", show_alert=False)
     elif result == "duplicate":
         await callback.answer(f"❌ Такое окошко уже существует!", show_alert=True)
     else:
         await callback.answer("❌ Ошибка: Профиль мастера не найден.", show_alert=True)
     
-    # Вернуться обратно в список окошек на этот день
-    date_str_short = date_obj.strftime('%d.%m')
-    callback.data = f"cal_day_{date_str_short}_{year_month}"
-    await calendar_day_click(callback, state)
+    # Stay in the time selection grid to allow adding more slots
+    callback_copy = callback
+    callback_copy.data = f"addslot_{date_str}_{year_month}"
+    
+    await process_addslot_calendar(callback_copy, state)
 
 @router.callback_query(F.data == "manual_slot")
 async def manual_slot_entry(callback: types.CallbackQuery, state: FSMContext):
@@ -352,7 +358,7 @@ async def calendar_day_click(callback: types.CallbackQuery, state: FSMContext):
     
     if not slots_for_day:
         kb = InlineKeyboardBuilder()
-        kb.button(text="➕ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
+        kb.button(text="✅ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
         kb.button(text="⬅️ К календарю", callback_data=f"back_to_calendar_{year_month}")
         kb.adjust(1)
         
@@ -373,7 +379,7 @@ async def calendar_day_click(callback: types.CallbackQuery, state: FSMContext):
         emoji = "✅" if is_booked == 0 else "🔴"
         kb.button(text=f"{emoji} {time_only} — {status_text}", callback_data=f"view_slot_{slot_id}")
     
-    kb.button(text="➕ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
+    kb.button(text="✅ Добавить время", callback_data=f"addslot_{full_date_str}_{year_month}")
     kb.button(text=f"🗑 Удалить день ({pluralize_slots(len(slots_for_day))})", callback_data=f"clear_day_{date_str}")
     kb.button(text="⬅️ К календарю", callback_data=f"back_to_calendar_{year_month}")
     kb.adjust(1)
@@ -502,16 +508,24 @@ async def confirm_clear_day(callback: types.CallbackQuery, bot: Bot = None):
             except:
                 pass
     
-    # Return to schedule overview
-    text, markup = await build_schedule_message(callback.from_user.id)
-    if markup:
-        await callback.message.edit_text(
-            f"✅ Удалено: {pluralize_slots(deleted_count)}\n"
-            f"📩 Уведомлено клиентов: {len(set(notified_clients))}\n\n{text}",
-            reply_markup=markup
-        )
-    else:
-        await callback.message.edit_text("✅ День очищен! Расписание теперь пусто.")
+    # Return to calendar view
+    from keyboards.calendar import build_month_calendar
+    now = datetime.now()
+    year, month = now.year, now.month
+    
+    parts = date_str.split(".")
+    if len(parts) == 2:
+        month = int(parts[1])
+    
+    days_free, days_booked = await build_calendar_data(callback.from_user.id, year, month)
+    markup = build_month_calendar(year, month, days_free, days_booked)
+    
+    await callback.message.edit_text(
+        f"✅ День очищен! Удалено: {pluralize_slots(deleted_count)}\n"
+        f"📩 Уведомлено клиентов: {len(set(notified_clients))}\n\n"
+        "📅 *Ваше расписание*\n🟢 свободные  🔴 все заняты  📍 сегодня",
+        reply_markup=markup
+    )
     
     await callback.answer("День очищен!")
 
@@ -614,11 +628,10 @@ async def cancel_client_booking(callback: types.CallbackQuery, bot: Bot):
         except: pass
         
         # Return to schedule
-        text, markup = await build_schedule_message(callback.from_user.id)
-        if markup:
-            await callback.message.edit_text(text, reply_markup=markup)
-        else:
-            await callback.message.edit_text("📅 Расписание пусто.")
+        date_str_short = datetime_str.split()[0]
+        year_month = f"{datetime.now().year}-{datetime.now().month:02d}"
+        callback.data = f"cal_day_{date_str_short}_{year_month}"
+        await calendar_day_click(callback, state)
     else:
         await callback.answer("Ошибка отмены.")
     
@@ -652,11 +665,10 @@ async def force_delete_slot(callback: types.CallbackQuery, bot: Bot):
     
     success = await delete_slot_db(slot_id)
     if success:
-        text, markup = await build_schedule_message(callback.from_user.id)
-        if markup:
-            await callback.message.edit_text(text, reply_markup=markup)
-        else:
-            await callback.message.edit_text("📅 Расписание пусто.")
+        date_str_short = datetime_str.split()[0] if slot_data else datetime.now().strftime('%d.%m')
+        year_month = f"{datetime.now().year}-{datetime.now().month:02d}"
+        callback.data = f"cal_day_{date_str_short}_{year_month}"
+        await calendar_day_click(callback, state=None)
     else:
         await callback.answer("Ошибка удаления.")
     
@@ -665,9 +677,4 @@ async def force_delete_slot(callback: types.CallbackQuery, bot: Bot):
 @router.callback_query(F.data == "back_to_schedule")
 async def back_to_schedule(callback: types.CallbackQuery):
     """Return to schedule view"""
-    text, markup = await build_schedule_message(callback.from_user.id)
-    if markup:
-        await callback.message.edit_text(text, reply_markup=markup)
-    else:
-        await callback.message.edit_text("📅 Расписание пусто.")
-    await callback.answer()
+    await back_to_schedule_overview(callback)

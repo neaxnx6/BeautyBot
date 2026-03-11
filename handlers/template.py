@@ -35,7 +35,7 @@ async def get_day_counts(master_id: int) -> dict:
     return counts
 
 # --- Main Template Menu ---
-@router.message(F.text == "🗓 Шаблон")
+@router.message(F.text == "🗓 Шаблон недели")
 async def show_weekly_template(message: types.Message):
     master_id = await get_master_id_by_tg_id(message.from_user.id)
     counts = await get_day_counts(master_id)
