@@ -495,6 +495,30 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext, bot:
                 # Fallback to admin
                 await bot.send_message(chat_id=ADMIN_ID, text=admin_text)
         except: pass
+        
+        # Sync booking to Google Calendar (safe — failure doesn't affect booking)
+        try:
+            from utils.google_calendar import create_calendar_event
+            from database.db_cmds import get_master_google_calendar_id
+            data = await state.get_data()
+            master_id = data.get('master_id')
+            cal_id = await get_master_google_calendar_id(master_id)
+            if cal_id and svc_info:
+                # datetime_str format: 'DD.MM HH:MM'
+                date_part, time_part = datetime_str.split()
+                duration = svc_info[2] if svc_info[2] else 60
+                client_display = callback.from_user.full_name or callback.from_user.username or "Клиент"
+                await create_calendar_event(
+                    calendar_id=cal_id,
+                    date_str=date_part,
+                    time_str=time_part,
+                    duration_minutes=duration,
+                    client_name=client_display,
+                    service_name=full_svc
+                )
+        except Exception as e:
+            import logging
+            logging.warning(f"Google Calendar sync after booking failed (non-critical): {e}")
     else:
         await callback.message.edit_text("❌ Упс, это окошко уже заняли.")
         
