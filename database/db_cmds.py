@@ -53,7 +53,7 @@ async def get_service_categories(master_id: int) -> List[str]:
             categories = [row[0] for row in rows]
             
             # Custom order
-            order = ["🫶🏻 Комплекс", "💅 Маникюр", "🐾 Педикюр", "💌 Другое", "⛓ Мужской"]
+            order = ["🫶🏻 Комплекс", "💅 Маникюр", "🐾 Педикюр", "❤️ Другое", "⛓ Мужской"]
             return sorted(categories, key=lambda x: order.index(x) if x in order else 999)
 
 async def get_subcategories(master_id: int, category: str) -> List[str]:
