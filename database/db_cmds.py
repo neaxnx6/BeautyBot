@@ -307,7 +307,6 @@ async def book_slot(slot_id: int, client_id: int, service_id: int = None):
 async def get_slot_info(slot_id: int):
     """Returns (datetime, master_id, service_name, price)"""
     async with aiosqlite.connect(DB_NAME) as db:
-        # Join with services to get details
         async with db.execute('''
             SELECT slots.datetime, slots.master_id, services.name, services.price 
             FROM slots 
@@ -315,6 +314,18 @@ async def get_slot_info(slot_id: int):
             WHERE slots.id = ?
         ''', (slot_id,)) as cursor:
             return await cursor.fetchone()
+
+async def get_master_tg_id_by_slot_id(slot_id: int):
+    """Returns telegram_id of the master who owns this slot."""
+    async with aiosqlite.connect(DB_NAME) as db:
+        async with db.execute('''
+            SELECT masters.telegram_id FROM slots
+            JOIN masters ON slots.master_id = masters.id
+            WHERE slots.id = ?
+        ''', (slot_id,)) as cursor:
+            result = await cursor.fetchone()
+            return result[0] if result else None
+
 
 async def get_client_bookings(client_id: int):
     """Get client bookings with full service details (only future)"""

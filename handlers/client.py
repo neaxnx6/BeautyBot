@@ -6,7 +6,8 @@ from database.db_cmds import (
     get_all_masters, get_available_slots, book_slot, get_slot_info, 
     add_user, get_client_bookings, cancel_booking_db, get_user_master, 
     get_master_name_by_id, get_service_categories, get_services_in_category,
-    get_service_info, get_subcategories
+    get_service_info, get_subcategories, get_master_by_tg_id, get_master_id_by_tg_id,
+    get_master_tg_id_by_slot_id
 )
 from config import ADMIN_ID
 
@@ -38,6 +39,16 @@ async def start_booking(message: types.Message, state: FSMContext):
         await message.answer(text)
         return
     
+    # If the user IS a master themselves, auto-link them to their own profile
+    master_self = await get_master_by_tg_id(message.from_user.id)
+    if master_self:
+        own_master_id = master_self[0]
+        await state.update_data(master_id=own_master_id)
+        master_name = await get_master_name_by_id(own_master_id)
+        await state.update_data(master_name=master_name)
+        await show_categories(message, own_master_id, state)
+        return
+
     linked_master_id = await get_user_master(message.from_user.id)
     
     if linked_master_id:
@@ -469,14 +480,20 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext, bot:
         msg = f"✅ *Вы успешно записаны!*\n\n📅 {formatted_time}\n💅 {full_svc}\n\nЖдем вас 💅"
         await callback.message.edit_text(msg)
         
-        # Notify Master
+        # Notify the correct Master (the one who owns the booked slot)
         user = callback.from_user
         client_link = f"@{user.username}" if user.username else f"[{user.full_name}](tg://user?id={user.id})"
         
         admin_text = f"🔔 *Новая запись!*\nКлиент: {client_link}\nВремя: {formatted_time}\nУслуга: {full_svc}"
             
         try:
-             await bot.send_message(chat_id=ADMIN_ID, text=admin_text)
+            # Notify the master who owns this slot
+            master_tg_id = await get_master_tg_id_by_slot_id(slot_id)
+            if master_tg_id:
+                await bot.send_message(chat_id=master_tg_id, text=admin_text)
+            else:
+                # Fallback to admin
+                await bot.send_message(chat_id=ADMIN_ID, text=admin_text)
         except: pass
     else:
         await callback.message.edit_text("❌ Упс, это окошко уже заняли.")
