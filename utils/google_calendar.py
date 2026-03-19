@@ -28,9 +28,14 @@ async def get_occupied_slots(calendar_id: str, date_str: str):
     Fetches events from Google Calendar for a specific date and returns occupied time ranges.
     date_str format: 'YYYY-MM-DD'
     Returns a list of tuples: [('14:00', '15:00'), ...]
+    ALWAYS returns [] on any error so the bot never crashes when Google is unavailable.
     """
-    service = get_calendar_service()
-    if not service:
+    try:
+        service = get_calendar_service()
+        if not service:
+            return []
+    except Exception as e:
+        logging.warning(f"Google Calendar: skipping occupied slots (service unavailable): {e}")
         return []
 
     try:
