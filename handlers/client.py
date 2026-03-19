@@ -210,8 +210,8 @@ async def process_service(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
 
 # --- 5. Show Days (Level 1) ---
-async def show_slots_logic(message: types.Message, state: FSMContext, edit_message=False):
-    """Уровень 1: Показ доступных дней со счетчиками"""
+async def show_slots_logic(message: types.Message, state: FSMContext, edit_message=False, year: int = None, month: int = None):
+    """Уровень 1: Показ доступных дней в виде календаря"""
     from datetime import datetime
     from collections import defaultdict
     from handlers.master import get_weekday_for_date, parse_date_for_sort
@@ -237,11 +237,36 @@ async def show_slots_logic(message: types.Message, state: FSMContext, edit_messa
             await message.answer(text)
         return
     
-    # Group slots by date
-    slots_by_date = defaultdict(list)
+    # Calculate Current Year and Month
+    now = datetime.now()
+    if not year or not month:
+        # Default to first available month with slots, or current month
+        year, month = now.year, now.month
+        
+        # Simple optimization: if no slots in current month, try next months
+        # (This is basic, assumes slots are sorted and exist)
+        if slots:
+            first_slot_date = slots[0][1].split()[0] # "DD.MM"
+            s_day, s_month = map(int, first_slot_date.split('.'))
+            target_date = datetime(now.year, s_month, s_day)
+            # If the slot is earlier in the year than current month, it's next year (e.g. now=Dec, slot=Jan)
+            if target_date < now and s_month < now.month:
+                year = now.year + 1
+            month = s_month
+    
+    # Filter slots for the selected month and collect free days
+    days_with_free = set()
     for s_id, s_time in slots:
         date_part = s_time.split()[0]  # "DD.MM"
-        slots_by_date[date_part].append((s_id, s_time))
+        d, m = map(int, date_part.split('.'))
+        
+        # Determine slot year (heuristic: if month < now.month, it's next year)
+        slot_year = now.year
+        if m < now.month:
+            slot_year += 1
+            
+        if slot_year == year and m == month:
+            days_with_free.add(d)
     
     # Get service info for title
     svc_info = await get_service_info(service_id)
@@ -258,25 +283,30 @@ async def show_slots_logic(message: types.Message, state: FSMContext, edit_messa
     title = f"✅ *{full_title}* — {int(svc_price)}₽\n\n"
     if svc_desc:
         title += f"Включено: {svc_desc}\n\n"
-    title += "📅 Выберите день:"
+    title += "📅 Выберите подходящий день:"
     
-    kb = InlineKeyboardBuilder()
-    
-    # Create buttons for each day
-    for date_str in sorted(slots_by_date.keys(), key=lambda d: parse_date_for_sort(d)):
-        count = len(slots_by_date[date_str])
-        weekday = get_weekday_for_date(date_str)
-        kb.button(text=f"{weekday} {date_str} ({count})", callback_data=f"day_{date_str}")
-    
-    kb.button(text="⬅️ Назад", callback_data="back_from_slots")
-    kb.adjust(3)  # 3 days per row
+    from keyboards.calendar import build_client_month_calendar
+    kb = build_client_month_calendar(year, month, days_with_free)
     
     if edit_message:
-        await message.edit_text(title, reply_markup=kb.as_markup())
+        await message.edit_text(title, reply_markup=kb)
     else:
-        await message.answer(title, reply_markup=kb.as_markup())
+        await message.answer(title, reply_markup=kb)
         
     await state.set_state(BookingStates.selecting_day)
+
+@router.callback_query(F.data.startswith("client_cal_prev_") | F.data.startswith("client_cal_next_"))
+async def process_client_calendar_nav(callback: types.CallbackQuery, state: FSMContext):
+    action = callback.data.split("_")[2] # "prev" or "next"
+    year_month = callback.data.split("_")[3]
+    year, month = map(int, year_month.split("-"))
+    
+    await show_slots_logic(callback.message, state=state, edit_message=True, year=year, month=month)
+    await callback.answer()
+
+@router.callback_query(F.data == "cal_ignore")
+async def process_client_calendar_ignore(callback: types.CallbackQuery):
+    await callback.answer("⏳ Недоступно или прошло", show_alert=False)
 
 # --- 6. Show Times for Day (Level 2) ---
 @router.callback_query(BookingStates.selecting_day, F.data.startswith("day_"))
