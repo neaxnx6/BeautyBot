@@ -87,7 +87,7 @@ async def create_calendar_event(
     """
     service = get_calendar_service()
     if not service:
-        return None
+        raise Exception("Не удалось инициализовать Google Calendar Service (возможно, нет ключа)")
     
     try:
         # Parse 'DD.MM' + current/next year
