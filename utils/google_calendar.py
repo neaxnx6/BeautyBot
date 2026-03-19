@@ -5,26 +5,23 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
-# Path to your service account key file
-SERVICE_ACCOUNT_FILE = 'google_key.json'
+# Build absolute path to google_key.json based on current file location
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, 'google_key.json')
 # Full access scope: read + write
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
 def get_calendar_service():
     """Builds the Google Calendar service. Returns None if key file missing."""
     if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        import logging
-        logging.warning(f"Google Calendar: key file '{SERVICE_ACCOUNT_FILE}' not found, sync disabled.")
-        return None
+        raise Exception(f"Google Calendar ключа нет по пути: {SERVICE_ACCOUNT_FILE}")
     
     try:
         creds = service_account.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         return build('calendar', 'v3', credentials=creds)
     except Exception as e:
-        import logging
-        logging.error(f"Google Calendar: failed to build service: {e}")
-        return None
+        raise Exception(f"Гугл: ошибка при сборке сервиса API: {e}")
 
 async def get_occupied_slots(calendar_id: str, date_str: str):
     """
