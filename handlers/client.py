@@ -549,6 +549,10 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext, bot:
         except Exception as e:
             import logging
             logging.warning(f"Google Calendar sync after booking failed (non-critical): {e}")
+            try:
+                from config import ADMIN_ID
+                await bot.send_message(chat_id=ADMIN_ID, text=f"⚠️ Ошибка Google Calendar: {str(e)}")
+            except: pass
     else:
         await callback.message.edit_text("❌ Упс, это окошко уже заняли.")
         
