@@ -1,27 +1,39 @@
 import os
+import asyncio
 import logging
 from datetime import datetime, timedelta
-from google.oauth2 import service_account
 from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
+from google.oauth2 import service_account
 
-# Build absolute path to google_key.json based on current file location
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, 'google_key.json')
-# Full access scope: read + write
 SCOPES = ['https://www.googleapis.com/auth/calendar']
 
-def get_calendar_service():
-    """Builds the Google Calendar service. Returns None if key file missing."""
+# Build absolute path to google_key.json relative to this file's parent directory
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, 'google_key.json')
+
+
+def _build_service_sync():
+    """
+    Builds the Google Calendar service synchronously.
+    Must be run in a thread executor to avoid blocking the event loop.
+    Returns None on failure.
+    """
     if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        raise Exception(f"Google Calendar ключа нет по пути: {SERVICE_ACCOUNT_FILE}")
-    
+        logging.warning(f"Google Calendar: key file not found at '{SERVICE_ACCOUNT_FILE}'")
+        return None
     try:
         creds = service_account.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         return build('calendar', 'v3', credentials=creds)
     except Exception as e:
-        raise Exception(f"Гугл: ошибка при сборке сервиса API: {e}")
+        logging.error(f"Google Calendar: failed to build service: {e}")
+        return None
+
+
+async def get_calendar_service():
+    """Async wrapper around _build_service_sync to avoid blocking the event loop."""
+    return await asyncio.to_thread(_build_service_sync)
+
 
 async def get_occupied_slots(calendar_id: str, date_str: str):
     """
@@ -31,7 +43,7 @@ async def get_occupied_slots(calendar_id: str, date_str: str):
     ALWAYS returns [] on any error so the bot never crashes when Google is unavailable.
     """
     try:
-        service = get_calendar_service()
+        service = await get_calendar_service()
         if not service:
             return []
     except Exception as e:
@@ -39,40 +51,37 @@ async def get_occupied_slots(calendar_id: str, date_str: str):
         return []
 
     try:
-        # Define start and end of the day in RFC3339 format
         time_min = f"{date_str}T00:00:00Z"
         time_max = f"{date_str}T23:59:59Z"
 
-        events_result = service.events().list(
-            calendarId=calendar_id,
-            timeMin=time_min,
-            timeMax=time_max,
-            singleEvents=True,
-            orderBy='startTime'
-        ).execute()
-        
+        def _fetch():
+            return service.events().list(
+                calendarId=calendar_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy='startTime'
+            ).execute()
+
+        events_result = await asyncio.to_thread(_fetch)
         events = events_result.get('items', [])
         occupied = []
 
         for event in events:
             start = event['start'].get('dateTime', event['start'].get('date'))
             end = event['end'].get('dateTime', event['end'].get('date'))
-            
-            # Extract HH:mm
-            if 'T' in start:
+            if start and end and 'T' in start:
                 start_time = start.split('T')[1][:5]
                 end_time = end.split('T')[1][:5]
                 occupied.append((start_time, end_time))
-            else:
-                # All-day event
-                pass
-                
+            # All-day events are skipped
+
         return occupied
 
     except Exception as e:
-        import logging
-        logging.error(f"Google Calendar err in get_occupied_slots: {e}")
+        logging.error(f"Google Calendar: error in get_occupied_slots: {e}")
         return []
+
 
 async def create_calendar_event(
     calendar_id: str,
@@ -84,48 +93,38 @@ async def create_calendar_event(
 ):
     """
     Creates an event in Google Calendar when a client books via the bot.
-    Returns event ID on success, None on failure.
-    All errors are caught silently - Google failure never blocks booking.
+    Raises Exception on failure so the caller can notify the admin.
     """
-    service = get_calendar_service()
+    service = await get_calendar_service()
     if not service:
-        raise Exception("Не удалось инициализовать Google Calendar Service (возможно, нет ключа)")
-    
+        raise Exception(f"Не удалось подключиться к Google Calendar (файл ключа: {SERVICE_ACCOUNT_FILE})")
+
+    now = datetime.now()
+    day, month = map(int, date_str.split('.'))
+    year = now.year
+    if month < now.month:
+        year += 1
+
+    hour, minute = map(int, time_str.split(':'))
+    start_dt = datetime(year, month, day, hour, minute)
+    end_dt = start_dt + timedelta(minutes=duration_minutes)
+
+    def to_rfc3339(dt):
+        return dt.strftime('%Y-%m-%dT%H:%M:%S+03:00')
+
+    event = {
+        'summary': f'{client_name} — {service_name}',
+        'description': f'Запись через Telegram-бот. Услуга: {service_name}',
+        'start': {'dateTime': to_rfc3339(start_dt), 'timeZone': 'Europe/Moscow'},
+        'end': {'dateTime': to_rfc3339(end_dt), 'timeZone': 'Europe/Moscow'},
+    }
+
+    def _insert():
+        return service.events().insert(calendarId=calendar_id, body=event).execute()
+
     try:
-        # Parse 'DD.MM' + current/next year
-        now = datetime.now()
-        day, month = map(int, date_str.split('.'))
-        year = now.year
-        if month < now.month:
-            year += 1
-        
-        hour, minute = map(int, time_str.split(':'))
-        
-        start_dt = datetime(year, month, day, hour, minute)
-        end_dt = start_dt + timedelta(minutes=duration_minutes)
-        
-        # Format as RFC3339 in Moscow time (UTC+3)
-        def to_rfc3339(dt):
-            return dt.strftime('%Y-%m-%dT%H:%M:%S+03:00')
-        
-        event = {
-            'summary': f'{client_name} — {service_name}',
-            'description': f'Запись через Telegram-бот. Услуга: {service_name}',
-            'start': {'dateTime': to_rfc3339(start_dt), 'timeZone': 'Europe/Moscow'},
-            'end': {'dateTime': to_rfc3339(end_dt), 'timeZone': 'Europe/Moscow'},
-        }
-        
-        created = service.events().insert(calendarId=calendar_id, body=event).execute()
+        created = await asyncio.to_thread(_insert)
         logging.info(f"Google Calendar: created event '{event['summary']}' at {to_rfc3339(start_dt)}")
         return created.get('id')
-    
     except Exception as e:
-        raise Exception(f"Ошибка при создании мероприятия в гугл: {str(e)}")
-
-
-if __name__ == "__main__":
-    import asyncio
-    async def test():
-        slots = await get_occupied_slots('rikouvens7@gmail.com', '2026-03-12')
-        print(f"Occupied slots: {slots}")
-    asyncio.run(test())
+        raise Exception(f"Ошибка при создании события в Google Calendar: {e}")
