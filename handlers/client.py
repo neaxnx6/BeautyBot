@@ -532,20 +532,28 @@ async def confirm_booking(callback: types.CallbackQuery, state: FSMContext, bot:
             from database.db_cmds import get_master_google_calendar_id
             data = await state.get_data()
             master_id = data.get('master_id')
+            if not master_id:
+                raise Exception("Не найден master_id в FSM context (кто мастер?)")
+            
             cal_id = await get_master_google_calendar_id(master_id)
-            if cal_id and svc_info:
-                # datetime_str format: 'DD.MM HH:MM'
-                date_part, time_part = datetime_str.split()
-                duration = svc_info[2] if svc_info[2] else 60
-                client_display = callback.from_user.full_name or callback.from_user.username or "Клиент"
-                await create_calendar_event(
-                    calendar_id=cal_id,
-                    date_str=date_part,
-                    time_str=time_part,
-                    duration_minutes=duration,
-                    client_name=client_display,
-                    service_name=full_svc
-                )
+            if not cal_id:
+                raise Exception(f"У мастера ID={master_id} нет Google Calendar в базе.")
+            if not svc_info:
+                raise Exception("Не найдена информация об услуге (svc_info=None).")
+
+            # datetime_str format: 'DD.MM HH:MM'
+            date_part, time_part = datetime_str.split()
+            duration = svc_info[2] if svc_info[2] else 60
+            client_display = callback.from_user.full_name or callback.from_user.username or "Клиент"
+            
+            await create_calendar_event(
+                calendar_id=cal_id,
+                date_str=date_part,
+                time_str=time_part,
+                duration_minutes=duration,
+                client_name=client_display,
+                service_name=full_svc
+            )
         except Exception as e:
             import logging
             logging.warning(f"Google Calendar sync after booking failed (non-critical): {e}")
