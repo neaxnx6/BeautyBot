@@ -246,6 +246,9 @@ async def get_available_slots(master_id: int, service_duration: int = 30):
         except:
             continue
     
+    # Sort slots chronologically since SQLite's ORDER BY sorts '01.04' before '25.03' alphabetically
+    filtered_slots.sort(key=lambda x: _parse_slot_dt(x[1]) or datetime.max)
+    
     return filtered_slots
 
 def _parse_slot_dt(datetime_str: str):

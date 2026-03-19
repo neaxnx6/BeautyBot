@@ -87,10 +87,13 @@ async def create_calendar_event(
         return None
     
     try:
-        # Parse 'DD.MM' + current year
+        # Parse 'DD.MM' + current/next year
         now = datetime.now()
         day, month = map(int, date_str.split('.'))
         year = now.year
+        if month < now.month:
+            year += 1
+        
         hour, minute = map(int, time_str.split(':'))
         
         start_dt = datetime(year, month, day, hour, minute)
