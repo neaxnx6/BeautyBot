@@ -13,14 +13,18 @@ SCOPES = ['https://www.googleapis.com/auth/calendar']
 def get_calendar_service():
     """Builds the Google Calendar service. Returns None if key file missing."""
     if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        raise FileNotFoundError(f"Файл ключа {SERVICE_ACCOUNT_FILE} не найден!")
+        import logging
+        logging.warning(f"Google Calendar: key file '{SERVICE_ACCOUNT_FILE}' not found, sync disabled.")
+        return None
     
     try:
         creds = service_account.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_FILE, scopes=SCOPES)
         return build('calendar', 'v3', credentials=creds)
     except Exception as e:
-        raise Exception(f"Ошибка Google API (вход): {str(e)}")
+        import logging
+        logging.error(f"Google Calendar: failed to build service: {e}")
+        return None
 
 async def get_occupied_slots(calendar_id: str, date_str: str):
     """
@@ -59,12 +63,13 @@ async def get_occupied_slots(calendar_id: str, date_str: str):
                 occupied.append((start_time, end_time))
             else:
                 # All-day event
-                occupied.append(('00:00', '23:59'))
+                pass
                 
         return occupied
 
-    except HttpError as error:
-        print(f"An error occurred: {error}")
+    except Exception as e:
+        import logging
+        logging.error(f"Google Calendar err in get_occupied_slots: {e}")
         return []
 
 async def create_calendar_event(
