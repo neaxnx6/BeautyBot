@@ -11,48 +11,59 @@ SCOPES = ['https://www.googleapis.com/auth/calendar']
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SERVICE_ACCOUNT_FILE = os.path.join(BASE_DIR, 'google_key.json')
 
+# Module-level cache: build the service once, reuse it forever
+_service_cache = None
+
 
 def _build_service_sync():
     """
     Builds the Google Calendar service synchronously.
-    Must be run in a thread executor to avoid blocking the event loop.
-    Returns None on failure.
+    Uses a module-level cache so we only pay the `build()` cost once.
     """
+    global _service_cache
+    if _service_cache is not None:
+        return _service_cache
+
     if not os.path.exists(SERVICE_ACCOUNT_FILE):
         logging.warning(f"Google Calendar: key file not found at '{SERVICE_ACCOUNT_FILE}'")
         return None
+
     try:
         creds = service_account.Credentials.from_service_account_file(
             SERVICE_ACCOUNT_FILE, scopes=SCOPES)
-        return build('calendar', 'v3', credentials=creds)
+        # static_discovery=False avoids downloading the discovery document from Google
+        _service_cache = build('calendar', 'v3', credentials=creds, static_discovery=False)
+        logging.info("Google Calendar: service built and cached successfully.")
+        return _service_cache
     except Exception as e:
         logging.error(f"Google Calendar: failed to build service: {e}")
         return None
 
 
 async def get_calendar_service():
-    """Async wrapper around _build_service_sync to avoid blocking the event loop."""
+    """Async wrapper — runs the sync build in a thread, returns cached result fast on repeat calls."""
     return await asyncio.to_thread(_build_service_sync)
 
 
-async def get_occupied_slots(calendar_id: str, date_str: str):
+async def get_occupied_slots_range(calendar_id: str, date_from: str, date_to: str) -> list:
     """
-    Fetches events from Google Calendar for a specific date and returns occupied time ranges.
-    date_str format: 'YYYY-MM-DD'
-    Returns a list of tuples: [('14:00', '15:00'), ...]
-    ALWAYS returns [] on any error so the bot never crashes when Google is unavailable.
+    Fetches ALL events from Google Calendar in a date range with ONE API call.
+    date_from / date_to format: 'YYYY-MM-DD'
+    Returns a list of (date_str, start_time, end_time) tuples,
+    e.g. [('2026-03-25', '14:00', '15:00'), ...]
+    ALWAYS returns [] on any error.
     """
     try:
         service = await get_calendar_service()
         if not service:
             return []
     except Exception as e:
-        logging.warning(f"Google Calendar: skipping occupied slots (service unavailable): {e}")
+        logging.warning(f"Google Calendar: service unavailable: {e}")
         return []
 
     try:
-        time_min = f"{date_str}T00:00:00Z"
-        time_max = f"{date_str}T23:59:59Z"
+        time_min = f"{date_from}T00:00:00Z"
+        time_max = f"{date_to}T23:59:59Z"
 
         def _fetch():
             return service.events().list(
@@ -68,19 +79,32 @@ async def get_occupied_slots(calendar_id: str, date_str: str):
         occupied = []
 
         for event in events:
-            start = event['start'].get('dateTime', event['start'].get('date'))
-            end = event['end'].get('dateTime', event['end'].get('date'))
-            if start and end and 'T' in start:
-                start_time = start.split('T')[1][:5]
-                end_time = end.split('T')[1][:5]
-                occupied.append((start_time, end_time))
-            # All-day events are skipped
+            start = event['start'].get('dateTime', '')
+            end = event['end'].get('dateTime', '')
+            if 'T' not in start:
+                # All-day event — skip (it blocks the whole day but we handle this separately)
+                continue
+            # start = '2026-03-25T14:00:00+03:00'
+            date_part = start.split('T')[0]          # '2026-03-25'
+            start_time = start.split('T')[1][:5]     # '14:00'
+            end_time = end.split('T')[1][:5]         # '15:00'
+            occupied.append((date_part, start_time, end_time))
 
         return occupied
 
     except Exception as e:
-        logging.error(f"Google Calendar: error in get_occupied_slots: {e}")
+        logging.error(f"Google Calendar: error fetching range {date_from}–{date_to}: {e}")
         return []
+
+
+# Keep backward-compatible single-date version (used in some places)
+async def get_occupied_slots(calendar_id: str, date_str: str) -> list:
+    """
+    Single-date wrapper around get_occupied_slots_range.
+    Returns [('HH:MM', 'HH:MM'), ...] for the given date.
+    """
+    results = await get_occupied_slots_range(calendar_id, date_str, date_str)
+    return [(s, e) for _, s, e in results]
 
 
 async def create_calendar_event(

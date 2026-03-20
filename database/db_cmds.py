@@ -168,25 +168,30 @@ async def get_available_slots(master_id: int, service_duration: int = 30):
     
     # --- Integration with Google Calendar ---
     google_cal_id = await get_master_google_calendar_id(master_id)
-    if google_cal_id:
-        from utils.google_calendar import get_occupied_slots
-        # We need to fetch occupied slots for the next 14 days (or however many we show)
-        # But for optimization, we can fetch only for the dates of slots we have in DB
-        dates_to_check = set()
+    if google_cal_id and all_slots:
+        from utils.google_calendar import get_occupied_slots_range
+        
+        # Find the date range of all slots (min and max dates) for a SINGLE API call
+        now = datetime.now()
+        slot_dates = []
         for _, datetime_str in all_slots:
             try:
                 day_month = datetime_str.split()[0]
                 day, month = map(int, day_month.split('.'))
-                dates_to_check.add(f"{datetime.now().year}-{month:02d}-{day:02d}")
+                year = now.year if month >= now.month else now.year + 1
+                slot_dates.append(f"{year}-{month:02d}-{day:02d}")
             except:
                 continue
         
-        for date_to_fetch in dates_to_check:
-            google_occupied = await get_occupied_slots(google_cal_id, date_to_fetch)
-            for start_str, end_str in google_occupied:
+        if slot_dates:
+            date_from = min(slot_dates)
+            date_to = max(slot_dates)
+            
+            # ONE API call for the full range instead of N calls
+            google_occupied = await get_occupied_slots_range(google_cal_id, date_from, date_to)
+            for date_str, start_str, end_str in google_occupied:
                 try:
-                    # Parse 'HH:MM' from Google into datetime
-                    y, m, d = map(int, date_to_fetch.split('-'))
+                    y, m, d = map(int, date_str.split('-'))
                     sh, sm = map(int, start_str.split(':'))
                     eh, em = map(int, end_str.split(':'))
                     g_start = datetime(y, m, d, sh, sm)
