@@ -49,10 +49,13 @@ async def get_occupied_slots_range(calendar_id: str, date_from: str, date_to: st
     """
     Fetches ALL events from Google Calendar in a date range with ONE API call.
     date_from / date_to format: 'YYYY-MM-DD'
-    Returns a list of (date_str, start_time, end_time) tuples,
+    Returns a list of (date_str, start_time, end_time) tuples in MOSCOW TIME,
     e.g. [('2026-03-25', '14:00', '15:00'), ...]
     ALWAYS returns [] on any error.
     """
+    from datetime import timezone
+    MOSCOW_TZ = timezone(timedelta(hours=3))
+
     try:
         service = await get_calendar_service()
         if not service:
@@ -62,8 +65,9 @@ async def get_occupied_slots_range(calendar_id: str, date_from: str, date_to: st
         return []
 
     try:
-        time_min = f"{date_from}T00:00:00Z"
-        time_max = f"{date_to}T23:59:59Z"
+        # Query in Moscow timezone so we don't miss events at day boundaries
+        time_min = f"{date_from}T00:00:00+03:00"
+        time_max = f"{date_to}T23:59:59+03:00"
 
         def _fetch():
             return service.events().list(
@@ -81,14 +85,23 @@ async def get_occupied_slots_range(calendar_id: str, date_from: str, date_to: st
         for event in events:
             start = event['start'].get('dateTime', '')
             end = event['end'].get('dateTime', '')
-            if 'T' not in start:
-                # All-day event — skip (it blocks the whole day but we handle this separately)
+            if not start or 'T' not in start:
+                # All-day event — skip
                 continue
-            # start = '2026-03-25T14:00:00+03:00'
-            date_part = start.split('T')[0]          # '2026-03-25'
-            start_time = start.split('T')[1][:5]     # '14:00'
-            end_time = end.split('T')[1][:5]         # '15:00'
-            occupied.append((date_part, start_time, end_time))
+            try:
+                # Parse with timezone and convert to Moscow time
+                start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                start_moscow = start_dt.astimezone(MOSCOW_TZ).replace(tzinfo=None)
+                end_moscow = end_dt.astimezone(MOSCOW_TZ).replace(tzinfo=None)
+
+                date_part = start_moscow.strftime('%Y-%m-%d')
+                start_time = start_moscow.strftime('%H:%M')
+                end_time = end_moscow.strftime('%H:%M')
+                occupied.append((date_part, start_time, end_time))
+            except Exception as ex:
+                logging.warning(f"Google Calendar: could not parse event time '{start}': {ex}")
+                continue
 
         return occupied
 
